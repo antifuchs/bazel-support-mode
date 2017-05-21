@@ -1,4 +1,84 @@
-;;; a mode for supporting you while you do things on code that builds with bazel
+;;; bazel-support-mode.el ---  Launch bazel tests
+
+;; Author: Andreas Fuchs <asf@boinkor.net>
+;; Package-Version: 20170521.010
+;; Version: 0.1.0
+;; URL: https://github.com/antifuchs/bazel-support-mode
+;; Keywords: bazel, compilation
+
+;; Package-Requires: ((emacs "24.3") (gotest "0.13.0")
+
+;; Copyright (C) 2017, Andreas Fuchs <asf@boinkor.net>
+
+;; This program is free software; you can redistribute it and/or
+;; modify it under the terms of the GNU General Public License
+;; as published by the Free Software Foundation; either version 2
+;; of the License, or (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program; if not, write to the Free Software
+;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+;; 02110-1301, USA.
+;;
+;;; Code:
+
+(require 'compile)
+(require 'gotest)
+
+(defgroup bazel-support nil
+  "Bazel test and build support"
+  :group 'compilation)
+
+;;; Variables:
+
+(defcustom bazel-support-pre-run-hook '()
+  "List of functions to run before running any bazel build functions.
+This could contain a BUILD file generator function or similar."
+  :type 'hook
+  :group 'bazel-support)
+
+(defcustom bazel-support-compilation-scroll-output t
+  "Whether to scroll output in the bazel compilation buffer.
+This variable behaves exactly like `compilation-scroll-output'."
+  :type '(radio (const :tag "On" t)
+                (const :tag "Only to first error" first-error)
+                (const :tag "Off" nil))
+  :link '(variable-link compilation-scroll-output)
+  :group 'bazel-support)
+
+(defcustom bazel-support-keep-going-p nil
+  "Indicates whether the bazel process gets the `--keep_going' flag."
+  :type 'boolean
+  :group 'bazel-support)
+
+(defcustom bazel-support-test-output 'errors
+  "Indicates the value to pass with `--test_output'.
+This defaults to 'errors to maximize the utility of errors in the
+buffer."
+  :type '(radio (const :tag "Errors" errors)
+                (const :tag "Summary only" summary)
+                (const :tag "All" all)
+                (const :tag "Streaming" streaming))
+  :link '(url-link "https://bazel.build/versions/master/docs/command-line-reference.html#flag--test_output"))
+
+;;; Faces:
+
+(defface bazel-support--ok-face
+  '((t (:foreground "#00ff00")))
+  "Face indicating that something went well"
+  :group 'bazel-support)
+
+(defface bazel-support--target-pattern-face
+  '((t (:inherit 'compilation-info)))
+  "Face indicating that something went well"
+  :group 'bazel-support)
+
+;;; The minor mode to use in files:
 
 (define-minor-mode bazel-support-mode
   "A minor mode for running things in a bazelified repository."
@@ -26,17 +106,18 @@
   (interactive)
   (bazel-support--run-tests-with-args "//..."))
 
-(defvar bazel-support-pre-run-hook '()
-  "List of functions to run before running any bazel build functions.
-This could contain a BUILD file generator function or similar.")
-
 (defun bazel-support--run-tests-with-args (args)
   (let ((buffer "*Bazel Test*"))
     (bazel-support--cleanup buffer)
     (run-hooks 'bazel-support-pre-run-hook)
-    (compilation-start (concat "bazel test --test_output=errors " args)
-                       'bazel-support-compilation-mode
-                       'bazel-support--buffer-name)
+    (let ((final-args (concat (when bazel-support-keep-going-p
+                               "--keep-going ")
+                             (format "--test_output=%s "
+                                     bazel-support-test-output)
+                             args)))
+      (compilation-start (concat "bazel test " final-args)
+                         'bazel-support-compilation-mode
+                         'bazel-support--buffer-name))
     (with-current-buffer "*Bazel Test*"
       (rename-buffer buffer))
     (set-process-sentinel (get-buffer-process buffer) 'bazel-support--finished-sentinel)))
@@ -77,7 +158,7 @@ This could contain a BUILD file generator function or similar.")
   (let ((relative-file (match-string 1)))
     (save-match-data
       (let* ((relative-dir (save-excursion
-                             (when (re-search-backward "^==================== Test output for //\\([^:]+\\):go_default_xtest:$" (point-min) t)
+                             (when (re-search-backward "^==================== Test output for //\\([^:]+\\):[^:]+:$" (point-min) t)
                                (match-string 1))))
              (dir (when relative-dir
                     (concat
@@ -88,15 +169,54 @@ This could contain a BUILD file generator function or similar.")
               (cons relative-file (expand-file-name dir)))
           relative-file)))))
 
-(setq bazel-support-compilation-error-regexp-alist-alist
-      '((bazel-go-test-testing . ("^\t\\([[:alnum:]-_/.]+\\.go\\):\\([0-9]+\\): .*$"
-                                  bazel-support--go-backwards-find-filename 2 nil 3 1))))
-
-(defvar bazel-support-compilation-error-regexp-alist
-  '(bazel-go-test-testing))
-
 (define-compilation-mode bazel-support-compilation-mode "Bazel compilation"
   "Major mode for bazel compilation / test running results."
   )
+
+(defconst bazel-support-compilation-mode-font-lock-keywords
+  '(;; Test statuses:
+    ("^\\(//[[:word:]:_@]+\\)[[:space:]]+\\(?:(cached)\\)? \\(PASSED\\)"
+     (1 'bazel-support--target-pattern-face)
+     (2 'bazel-support--ok-face))
+    ("^\\(//[[:word:]:_@]+\\)[[:space:]]+\\(?:(cached)\\)? \\(FAILED\\|NO STATUS\\)"
+     (1 'bazel-support--target-pattern-face)
+     (2 compilation-error-face))
+
+    ;; Progress messages:
+    ("^\\(PASS\\): \\(//[^ \t]*\\)"
+     (1 'bazel-support--ok-face)
+     (2 'bazel-support--target-pattern-face))
+    ("^\\(FAIL\\): \\(//[^ \t]+\\)"
+     (1 compilation-error-face)
+     (2 'bazel-support--target-pattern-face))
+
+    ;; Bazel meta-messages:
+    ("^\\(INFO:\\) " (1 compilation-info-face))
+    ("^\\(WARNING:\\) " (1 compilation-warning-face))
+    ("^\\(ERROR:\\) \\([[:alnum:]-_/.]+/BUILD\\):"
+     (1 compilation-error-face)
+     (2 compilation-enter-directory-face))
+    ("^Bazel compilation \\(started\\) at "
+     (0 '(face nil compilation-message nil help-echo nil mouse-face nil))
+     (1 compilation-info-face))
+    ("^Executed \\([[:digit:]]+\\) out of \\([[:digit:]]+\\) tests: \\([[:digit:]]\\) tests pass.$"
+     (0 '(face nil compilation-message nil help-echo nil mouse-face nil))
+     (1 compilation-message-face)
+     (2 compilation-message-face)
+     (3 compilation-message-face))
+    ("^Bazel compilation exited \\(abnormally\\) with code \\([0-9]+\\)"
+     (0 '(face nil compilation-message nil help-echo nil mouse-face nil))
+     (1 compilation-error-face)
+     (2 compilation-error-face nil t))
+    ))
+
+(setq bazel-support-compilation-error-regexp-alist-alist
+      (append '((bazel-go-test-testing . ("^\t\\([[:alnum:]-_/.]+\\.go\\):\\([0-9]+\\): .*$"
+                                          bazel-support--go-backwards-find-filename 2 nil 3 1))
+                (bazel-go-compile . ("^\\([[:alnum:]-_/.]+\\.go\\):\\([0-9]+\\):\\(?:\\([0-9]+\\):\\)? .*$" 1 2 3)))
+              go-test-compilation-error-regexp-alist-alist))
+
+(setq bazel-support-compilation-error-regexp-alist
+      '(bazel-go-test-testing bazel-go-compile))
 
 (provide 'bazel-support-mode)
