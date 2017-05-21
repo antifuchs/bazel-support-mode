@@ -4,9 +4,9 @@
 ;; Package-Version: 20170521.010
 ;; Version: 0.1.0
 ;; URL: https://github.com/antifuchs/bazel-support-mode
-;; Keywords: bazel, compilation
+;; Keywords: tools, bazel, compilation
 
-;; Package-Requires: ((emacs "24.3") (gotest "0.13.0")
+;; Package-Requires: ((emacs "24.3") (gotest "20170303.13"))
 
 ;; Copyright (C) 2017, Andreas Fuchs <asf@boinkor.net>
 
@@ -220,3 +220,5 @@ buffer."
       '(bazel-go-test-testing bazel-go-compile))
 
 (provide 'bazel-support-mode)
+
+;;; bazel-support-mode.el ends here
