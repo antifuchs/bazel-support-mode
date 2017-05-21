@@ -107,6 +107,8 @@ buffer."
   (bazel-support--run-tests-with-args "//..."))
 
 (defun bazel-support--run-tests-with-args (args)
+  (save-some-buffers (not compilation-ask-about-save)
+                     compilation-save-buffers-predicate)
   (let ((buffer "*Bazel Test*"))
     (bazel-support--cleanup buffer)
     (run-hooks 'bazel-support-pre-run-hook)
