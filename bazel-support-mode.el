@@ -26,9 +26,14 @@
   (interactive)
   (bazel-support--run-tests-with-args "//..."))
 
+(defvar bazel-support-pre-run-hook '()
+  "List of functions to run before running any bazel build functions.
+This could contain a BUILD file generator function or similar.")
+
 (defun bazel-support--run-tests-with-args (args)
   (let ((buffer "*Bazel Test*"))
     (bazel-support--cleanup buffer)
+    (run-hooks 'bazel-support-pre-run-hook)
     (compilation-start (concat "bazel test --test_output=errors " args)
                        'bazel-support-compilation-mode
                        'bazel-support--buffer-name)
