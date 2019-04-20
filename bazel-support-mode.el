@@ -91,7 +91,8 @@ buffer."
 (defun turn-on-bazel-support-mode ()
   "Turn on bazel-support-minor-mode if the current buffer is in a bazelified repository."
   (interactive)
-  (when (locate-dominating-file buffer-file-name "WORKSPACE")
+  (when (and buffer-file-name
+             (locate-dominating-file buffer-file-name "WORKSPACE"))
     (bazel-support-mode +1)))
 
 ;;;###autoload
