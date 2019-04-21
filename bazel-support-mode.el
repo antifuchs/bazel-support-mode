@@ -36,6 +36,11 @@
 
 ;;; Variables:
 
+(defcustom bazel-support-bazel-command "bazel"
+  "Command to invoke in order to run bazel."
+  :type 'string
+  :group 'bazel-support)
+
 (defcustom bazel-support-pre-run-hook '()
   "List of functions to run before running any bazel build functions.
 This could contain a BUILD file generator function or similar."
@@ -118,7 +123,9 @@ buffer."
                              (format "--test_output=%s "
                                      bazel-support-test-output)
                              args)))
-      (compilation-start (concat "bazel test " final-args)
+      (compilation-start (concat bazel-support-bazel-command
+                                 " test "
+                                 final-args)
                          'bazel-support-compilation-mode
                          'bazel-support--buffer-name))
     (with-current-buffer "*Bazel Test*"
